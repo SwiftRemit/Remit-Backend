@@ -1,10 +1,14 @@
-const { sendPayment } = require("../services/stellar.service");
+const { buildPaymentXdr, submitSignedTransaction } = require("../services/stellar.service");
 const Transaction = require("../models/Transaction.model");
 
-const initiatePayment = async (req, res, next) => {
+/**
+ * Step 1 — Build an unsigned transaction XDR.
+ * Frontend sends this to Freighter for signing. No secret key involved.
+ */
+const buildTransaction = async (req, res, next) => {
   try {
     const {
-      senderSecret,
+      senderPublicKey,
       recipientPublicKey,
       amount,
       assetCode = "XLM",
@@ -12,23 +16,8 @@ const initiatePayment = async (req, res, next) => {
       memo = "",
     } = req.body;
 
-    const { StellarSdk } = require("../config/stellar");
-    const senderPublicKey = StellarSdk.Keypair.fromSecret(senderSecret).publicKey();
-
-    // Create a pending transaction record
-    const txRecord = await Transaction.create({
-      userId: req.user._id,
+    const xdr = await buildPaymentXdr({
       senderPublicKey,
-      recipientPublicKey,
-      amount,
-      asset: assetCode,
-      memo,
-      status: "pending",
-    });
-
-    // Submit to Stellar
-    const result = await sendPayment({
-      senderSecret,
       recipientPublicKey,
       amount,
       assetCode,
@@ -36,7 +25,41 @@ const initiatePayment = async (req, res, next) => {
       memo,
     });
 
-    // Update transaction record
+    res.status(200).json({ success: true, xdr });
+  } catch (error) {
+    next(error);
+  }
+};
+
+/**
+ * Step 2 — Submit a signed transaction XDR to Stellar.
+ * The XDR was signed by Freighter in the browser — secret key never sent to server.
+ */
+const submitTransaction = async (req, res, next) => {
+  try {
+    const {
+      signedXdr,
+      senderPublicKey,
+      recipientPublicKey,
+      amount,
+      assetCode = "XLM",
+      memo = "",
+    } = req.body;
+
+    // Create pending record
+    const txRecord = await Transaction.create({
+      userId: req.user._id,
+      senderPublicKey,
+      recipientPublicKey,
+      amount,
+      asset: assetCode,
+      memo,
+      status: "submitted",
+    });
+
+    // Submit pre-signed XDR — no secret key on server
+    const result = await submitSignedTransaction(signedXdr);
+
     txRecord.stellarTxHash = result.hash;
     txRecord.status = "success";
     await txRecord.save();
@@ -58,4 +81,4 @@ const initiatePayment = async (req, res, next) => {
   }
 };
 
-module.exports = { initiatePayment };
+module.exports = { buildTransaction, submitTransaction };

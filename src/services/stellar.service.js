@@ -51,35 +51,24 @@ const getAccountBalance = async (publicKey) => {
 };
 
 /**
- * Send a payment on the Stellar network
- * @param {string} senderSecret - Sender's secret key
- * @param {string} recipientPublicKey - Recipient's public key
- * @param {string} amount - Amount to send
- * @param {string} assetCode - Asset code (XLM or USDC)
- * @param {string} assetIssuer - Asset issuer (null for XLM)
- * @param {string} memo - Optional memo
+ * Build an UNSIGNED payment transaction and return its XDR.
+ * The frontend passes this to Freighter for signing — secret key never leaves the browser.
  */
-const sendPayment = async ({
-  senderSecret,
+const buildPaymentXdr = async ({
+  senderPublicKey,
   recipientPublicKey,
   amount,
   assetCode = "XLM",
   assetIssuer = null,
   memo = "",
 }) => {
-  const senderKeypair = StellarSdk.Keypair.fromSecret(senderSecret);
-  const senderPublicKey = senderKeypair.publicKey();
-
-  // Load sender account
   const senderAccount = await server.loadAccount(senderPublicKey);
 
-  // Determine asset
   const asset =
     assetCode === "XLM"
       ? StellarSdk.Asset.native()
       : new StellarSdk.Asset(assetCode, assetIssuer);
 
-  // Build transaction
   const txBuilder = new StellarSdk.TransactionBuilder(senderAccount, {
     fee: await server.fetchBaseFee(),
     networkPassphrase,
@@ -98,9 +87,18 @@ const sendPayment = async ({
   }
 
   const transaction = txBuilder.build();
-  transaction.sign(senderKeypair);
+  return transaction.toXDR();
+};
 
-  // Submit transaction
+/**
+ * Submit a pre-signed transaction XDR to the Stellar network.
+ * Signed by Freighter on the client — secret key never touches the server.
+ */
+const submitSignedTransaction = async (signedXdr) => {
+  const transaction = StellarSdk.TransactionBuilder.fromXDR(
+    signedXdr,
+    networkPassphrase
+  );
   const result = await server.submitTransaction(transaction);
   return {
     hash: result.hash,
@@ -134,6 +132,7 @@ module.exports = {
   fundTestnetAccount,
   getAccountDetails,
   getAccountBalance,
-  sendPayment,
+  buildPaymentXdr,
+  submitSignedTransaction,
   getTransactionHistory,
 };

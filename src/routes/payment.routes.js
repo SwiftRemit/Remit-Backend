@@ -1,23 +1,36 @@
 const express = require("express");
 const { body } = require("express-validator");
-const { initiatePayment } = require("../controllers/payment.controller");
+const { buildTransaction, submitTransaction } = require("../controllers/payment.controller");
 const { protect } = require("../middleware/auth.middleware");
 const { validate } = require("../middleware/validate.middleware");
 
 const router = express.Router();
 
+// Step 1: Build unsigned XDR — frontend sends to Freighter for signing
 router.post(
-  "/send",
+  "/build",
   protect,
   [
-    body("senderSecret").notEmpty().withMessage("Sender secret key is required"),
+    body("senderPublicKey").notEmpty().withMessage("Sender public key is required"),
     body("recipientPublicKey").notEmpty().withMessage("Recipient public key is required"),
-    body("amount")
-      .isFloat({ gt: 0 })
-      .withMessage("Amount must be a positive number"),
+    body("amount").isFloat({ gt: 0 }).withMessage("Amount must be a positive number"),
   ],
   validate,
-  initiatePayment
+  buildTransaction
+);
+
+// Step 2: Submit signed XDR — Freighter signed it, secret key never on server
+router.post(
+  "/submit",
+  protect,
+  [
+    body("signedXdr").notEmpty().withMessage("Signed transaction XDR is required"),
+    body("senderPublicKey").notEmpty().withMessage("Sender public key is required"),
+    body("recipientPublicKey").notEmpty().withMessage("Recipient public key is required"),
+    body("amount").isFloat({ gt: 0 }).withMessage("Amount must be a positive number"),
+  ],
+  validate,
+  submitTransaction
 );
 
 module.exports = router;
